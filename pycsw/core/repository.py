@@ -289,6 +289,12 @@ class Repository(object):
                     query = query.order_by(func.get_geometry_area(sortby_column))
                 else:  # aspatial sort
                     query = query.order_by(sortby_column)
+        else:
+            #
+            # Custom adaption - if no sorting is specified,
+            # always sort ascending by 'date_modified'
+            #
+            query = query.order_by('date_modified')
 
         # always apply limit and offset
         return [str(total), self._get_repo_filter(query).limit(
