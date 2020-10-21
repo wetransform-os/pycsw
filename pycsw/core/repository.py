@@ -292,9 +292,9 @@ class Repository(object):
         else:
             #
             # Custom adaption - if no sorting is specified,
-            # always sort ascending by 'insert_date'
+            # always sort ascending by 'insert_date' and 'identifier'
             #
-            query = query.order_by('insert_date')
+            query = query.order_by('insert_date').order_by('identifier')
 
         # always apply limit and offset
         return [str(total), self._get_repo_filter(query).limit(
