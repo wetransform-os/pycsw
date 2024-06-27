@@ -1377,7 +1377,7 @@ class Csw2(object):
                         # same identifier, but different source
                         return self.exceptionreport('NoApplicableCode',
                         'source', 'Insert failed: identifier %s in repository\
-                        has source %s.' % (identifier, source))
+                        has source %s.' % (identifier, results[0].source))
 
                     try:
                         self.parent.repository.update(record)
