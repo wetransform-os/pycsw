@@ -387,7 +387,11 @@ class APISO(profile.Profile):
 
         xml_blob = util.getqattr(result, self.context.md_core_model['mappings']['pycsw:XML'])
 
-        #xml_blob_decoded = bytes.fromhex(xml_blob[2:]).decode('utf-8')
+        # records inserted with older pycsw version use a hex-encoded XML blob
+        if isinstance(xml_blob, str) and xml_blob.startswith('\\x'):
+            # Convert long hex value to bytes object (trim \x from start of string so that fromhex works)
+            # Then decode the bytes to unicode string
+            xml_blob = bytes.fromhex(xml_blob[2:]).decode('utf-8')
 
         if isinstance(xml_blob, bytes):
             iso_string = b'<gmd:MD_Metadata>'
