@@ -36,7 +36,7 @@
 #
 # =================================================================
 
-FROM python:3.8-slim-buster
+FROM python:3.8-slim-bookworm
 LABEL maintainer="massimods@met.no,aheimsbakk@met.no,tommkralidis@gmail.com"
 
 # Build arguments
