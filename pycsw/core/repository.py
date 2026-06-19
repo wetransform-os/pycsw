@@ -255,15 +255,24 @@ class Repository(object):
         ''' Query records from underlying repository '''
 
         # run the raw query and get total
+        filter_embedded = False
         if 'where' in constraint:  # GetRecords with constraint
             LOGGER.debug('constraint detected')
+            if self.filter is not None:
+                where = '(%s) AND (%s)' % (self.filter, constraint['where'])
+                filter_embedded = True
+            else:
+                where = constraint['where']
             query = self.session.query(self.dataset).filter(
-            text(constraint['where'])).params(self._create_values(constraint['values']))
+            text(where)).params(self._create_values(constraint['values']))
         else:  # GetRecords sans constraint
             LOGGER.debug('No constraint detected')
             query = self.session.query(self.dataset)
 
-        total = self._get_repo_filter(query).count()
+        def _filtered(q):
+            return q if filter_embedded else self._get_repo_filter(q)
+
+        total = _filtered(query).count()
 
         if util.ranking_pass:  #apply spatial ranking
             #TODO: Check here for dbtype so to extract wkt from postgis native to wkt
@@ -298,7 +307,7 @@ class Repository(object):
             query = query.order_by('date_modified')
 
         # always apply limit and offset
-        return [str(total), self._get_repo_filter(query).limit(
+        return [str(total), _filtered(query).limit(
         maxrecords).offset(startposition).all()]
 
     def insert(self, record, source, insert_date):
@@ -352,8 +361,10 @@ class Repository(object):
                     if 'dbcol' not in rpu['rp']:
                         self.session.rollback()
                         raise RuntimeError('property not found for XPath %s' % rpu['rp']['name'])
-                    rows += self._get_repo_filter(self.session.query(self.dataset)).filter(
-                        text(constraint['where'])).params(self._create_values(constraint['values'])).update({
+                    update_where = '(%s) AND (%s)' % (self.filter, constraint['where']) \
+                        if self.filter is not None else constraint['where']
+                    rows += self.session.query(self.dataset).filter(
+                        text(update_where)).params(self._create_values(constraint['values'])).update({
                             getattr(self.dataset,
                             rpu['rp']['dbcol']): rpu['value'],
                             'xml': func.update_xpath(str(self.context.namespaces),
@@ -362,8 +373,8 @@ class Repository(object):
                                    str(rpu)),
                         }, synchronize_session='fetch')
                     # then update anytext tokens
-                    rows2 += self._get_repo_filter(self.session.query(self.dataset)).filter(
-                        text(constraint['where'])).params(self._create_values(constraint['values'])).update({
+                    rows2 += self.session.query(self.dataset).filter(
+                        text(update_where)).params(self._create_values(constraint['values'])).update({
                             'anytext': func.get_anytext(getattr(
                             self.dataset, self.context.md_core_model['mappings']['pycsw:XML']))
                         }, synchronize_session='fetch')
@@ -380,8 +391,10 @@ class Repository(object):
 
         try:
             self.session.begin()
-            rows = self._get_repo_filter(self.session.query(self.dataset)).filter(
-            text(constraint['where'])).params(self._create_values(constraint['values']))
+            delete_where = '(%s) AND (%s)' % (self.filter, constraint['where']) \
+                if self.filter is not None else constraint['where']
+            rows = self.session.query(self.dataset).filter(
+            text(delete_where)).params(self._create_values(constraint['values']))
 
             parentids = []
             for row in rows:  # get ids
