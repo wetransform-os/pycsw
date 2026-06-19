@@ -28,11 +28,43 @@
 # =================================================================
 """Unit tests for pycsw.core.repository"""
 
+import os
+
 import pytest
 
 from pycsw.core import repository
+from pycsw.core.config import StaticContext
 
 pytestmark = pytest.mark.unit
+
+CITE_DB = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "functionaltests", "suites", "cite", "data", "cite.db",
+)
+DATASET_TYPE = "http://purl.org/dc/dcmitype/Dataset"
+
+
+@pytest.fixture
+def cite_repo_with_filter():
+    context = StaticContext()
+    return repository.Repository(
+        "sqlite:///%s" % CITE_DB,
+        context,
+        table="records",
+        repo_filter="type = '%s'" % DATASET_TYPE,
+    )
+
+
+def test_query_with_constraint_respects_repo_filter(cite_repo_with_filter):
+    """A POST constraint must not bypass the repo filter."""
+    constraint = {"where": "anytext LIKE :pvalue0", "values": ["%"]}
+    total, records = cite_repo_with_filter.query(constraint, maxrecords=20)
+
+    assert int(total) > 0, "expected at least one Dataset record in cite.db"
+    for record in records:
+        assert record.type == DATASET_TYPE, (
+            "repo filter not applied: record %s has type %s" % (record.identifier, record.type)
+        )
 
 
 @pytest.mark.parametrize("data, input_, predicate, distance, expected", [
