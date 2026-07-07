@@ -29,8 +29,10 @@
 """Unit tests for pycsw.core.repository"""
 
 import os
+import shutil
 
 import pytest
+from sqlalchemy.sql import text
 
 from pycsw.core import repository
 from pycsw.core.config import StaticContext
@@ -55,6 +57,24 @@ def cite_repo_with_filter():
     )
 
 
+@pytest.fixture
+def cite_repo_with_filter_copy(tmp_path):
+    """Repository backed by a disposable copy of cite.db.
+
+    update()/delete() mutate data, so tests exercising them must not touch
+    the shared cite.db fixture used by other test suites.
+    """
+    db_copy = tmp_path / "cite.db"
+    shutil.copy(CITE_DB, db_copy)
+    context = StaticContext()
+    return repository.Repository(
+        "sqlite:///%s" % db_copy,
+        context,
+        table="records",
+        repo_filter="type = '%s'" % DATASET_TYPE,
+    )
+
+
 def test_query_with_constraint_respects_repo_filter(cite_repo_with_filter):
     """A POST constraint must not bypass the repo filter."""
     constraint = {"where": "anytext LIKE :pvalue0", "values": ["%"]}
@@ -65,6 +85,73 @@ def test_query_with_constraint_respects_repo_filter(cite_repo_with_filter):
         assert record.type == DATASET_TYPE, (
             "repo filter not applied: record %s has type %s" % (record.identifier, record.type)
         )
+
+
+def test_update_property_based_respects_repo_filter(cite_repo_with_filter_copy):
+    """A property-based update with a constraint must not bypass the repo filter."""
+    repo = cite_repo_with_filter_copy
+    constraint = {"where": "anytext LIKE :pvalue0", "values": ["%"]}
+    recprops = [{
+        "rp": {"name": "apiso:Title", "xpath": "dc:title", "dbcol": "title"},
+        "value": "updated-by-test",
+    }]
+
+    non_dataset_titles_before = {
+        record.identifier: record.title
+        for record in repo.session.query(repo.dataset).filter(repo.dataset.type != DATASET_TYPE).all()
+    }
+    assert non_dataset_titles_before, "expected non-Dataset records in cite.db to prove filter matters"
+
+    dataset_matching_constraint = repo.session.query(repo.dataset).filter(
+        text(constraint["where"])).params(repo._create_values(constraint["values"])
+    ).filter(repo.dataset.type == DATASET_TYPE).count()
+    assert dataset_matching_constraint > 0
+
+    rows = repo.update(recprops=recprops, constraint=constraint)
+
+    assert rows == dataset_matching_constraint
+    updated_dataset_records = repo.session.query(repo.dataset).filter(
+        repo.dataset.type == DATASET_TYPE, repo.dataset.title == "updated-by-test").count()
+    assert updated_dataset_records == dataset_matching_constraint
+
+    non_dataset_titles_after = {
+        record.identifier: record.title
+        for record in repo.session.query(repo.dataset).filter(repo.dataset.type != DATASET_TYPE).all()
+    }
+    assert non_dataset_titles_after == non_dataset_titles_before, (
+        "repo filter bypassed: non-Dataset record(s) were updated"
+    )
+
+
+def test_delete_respects_repo_filter(cite_repo_with_filter_copy):
+    """A delete with a constraint must not bypass the repo filter."""
+    repo = cite_repo_with_filter_copy
+    constraint = {"where": "anytext LIKE :pvalue0", "values": ["%"]}
+
+    non_dataset_ids_before = {
+        record.identifier
+        for record in repo.session.query(repo.dataset).filter(repo.dataset.type != DATASET_TYPE).all()
+    }
+    assert non_dataset_ids_before, "expected non-Dataset records in cite.db to prove filter matters"
+
+    dataset_matching_constraint = repo.session.query(repo.dataset).filter(
+        text(constraint["where"])).params(repo._create_values(constraint["values"])
+    ).filter(repo.dataset.type == DATASET_TYPE).count()
+    assert dataset_matching_constraint > 0
+
+    repo.delete(constraint)
+
+    remaining_dataset_records = repo.session.query(repo.dataset).filter(
+        repo.dataset.type == DATASET_TYPE).count()
+    assert remaining_dataset_records == 0
+
+    non_dataset_ids_after = {
+        record.identifier
+        for record in repo.session.query(repo.dataset).filter(repo.dataset.type != DATASET_TYPE).all()
+    }
+    assert non_dataset_ids_after == non_dataset_ids_before, (
+        "repo filter bypassed: non-Dataset record(s) were deleted"
+    )
 
 
 @pytest.mark.parametrize("data, input_, predicate, distance, expected", [
